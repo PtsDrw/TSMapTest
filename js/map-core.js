@@ -565,26 +565,38 @@ function addTradeLegend(container) {
 
 function showTerritoryInfo(id) {
   const type = getTerritoryType(id);
-  const lvl = getTerritoryLevel(id);
-  if (!type || !lvl) return;
+  if (!type || type === 'A') return;
 
   // На тач-устройствах после touchend приходит парный click. Карточка
   // модальная, но защищаемся и здесь: вторая копия не должна открыться
   // поверх первой. Окно в процессе закрытия не блокирует новое.
   if (document.querySelector('.territory-info-overlay:not([data-closing])')) return;
 
-  const typeLabel = TERRITORY_TYPES[type]?.label || 'Территория';
+  const typeCfg = TERRITORY_TYPES[type];
+  if (!typeCfg) return;
+
   const isBastion = type === 'B';
+  const isTrade = type === 'T';
+
+  // Для городов уровень задаётся ТИПОМ территории (деревня — 1, завод — 2, …),
+  // а не номером в id: «D-39» — это деревня 1 уровня, а не 39-го.
+  // У бастионов и торговых постов уровень берётся из id (B6-8 → 6, T-5-4 → 5).
+  const lvl = (isBastion || isTrade) ? getTerritoryLevel(id) : (LEVEL_BY_TYPE[type] || 0);
+  if (!lvl) return;
+
+  const typeLabel = typeCfg.labelSingular || typeCfg.label || 'Территория';
+
   const allianceId = territoryAssignments[id];
   const alliance = allianceId ? allianceMap[allianceId] : null;
-  const iconKey = isBastion ? 'bastion' : 'city';
+  const iconKey = isBastion ? 'bastion' : isTrade ? 'trade' : 'city';
   const iconPts = LEGEND_ICON_POINTS[iconKey];
   const iconC = ICON_COLORS[iconKey];
+  const iconTextY = isBastion ? '7' : isTrade ? '8' : '8';
 
-  const iconHtml = `<svg width="16" height="16" viewBox="0 0 12 12"><polygon points="${iconPts}" fill="${iconC.fill}" stroke="${iconC.stroke}" stroke-width="0.8"/><text x="6" y="${isBastion ? '7' : '8'}" text-anchor="middle" fill="#fff" font-size="6" font-weight="bold">${lvl}</text></svg>`;
+  const iconHtml = `<svg width="16" height="16" viewBox="0 0 12 12"><polygon points="${iconPts}" fill="${iconC.fill}" stroke="${iconC.stroke}" stroke-width="0.8"/><text x="6" y="${iconTextY}" text-anchor="middle" fill="${ICON_TEXT_COLORS[iconKey] || '#fff'}" font-size="6" font-weight="bold">${lvl}</text></svg>`;
 
-  let title = `${iconHtml} <span class="font-bold text-lg ml-1">${isBastion ? 'Бастион' : typeLabel}</span>`;
-  
+  let title = `${iconHtml} <span class="font-bold text-lg ml-1">${typeLabel}</span>`;
+
   let ownerHtml = '';
   if (alliance) {
     ownerHtml = `<div class="mt-2 text-gray-700 dark:text-gray-300">
@@ -597,7 +609,13 @@ function showTerritoryInfo(id) {
 
   const income = getTerritoryIncome(id);
   let incomeHtml = '';
-  if (income > 0) {
+  if (isTrade) {
+    // У торговых постов нет фиксированного дохода — они дают налог с продаж.
+    incomeHtml = `<div class="mt-3 flex items-center gap-2 text-sm bg-gray-50 dark:bg-gray-700/50 p-2 rounded">
+      <span class="text-gray-500 dark:text-gray-400">Доход:</span>
+      <span class="font-bold text-base">Налог с продаж</span>
+    </div>`;
+  } else if (income > 0) {
     const resName = isBastion ? resourceNames.bastion : resourceNames.city;
     const resImg = isBastion ? 'assets/season_resource.png' : 'assets/season_resource_city.png';
     incomeHtml = `<div class="mt-3 flex items-center gap-2 text-sm bg-gray-50 dark:bg-gray-700/50 p-2 rounded">

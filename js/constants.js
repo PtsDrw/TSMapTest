@@ -79,14 +79,14 @@ export const LABEL_TEMPLATE_STROKE = '#3b82f6';
 const CITY_INCOME = [0, 3, 5, 10, 15, 25, 50];
 
 export const TERRITORY_TYPES = {
-  D: { label: 'Деревни', subs: false, income: CITY_INCOME },
-  Z: { label: 'Заводы', subs: false, income: CITY_INCOME },
-  G: { label: 'Городки', subs: false, income: CITY_INCOME },
-  M: { label: 'Мегаполисы', subs: false, income: CITY_INCOME },
-  C: { label: 'Центры исследований', subs: false, income: CITY_INCOME },
-  V: { label: 'Военные комплексы', subs: false, income: CITY_INCOME },
-  B: { label: 'Бастионы', subs: true, levels: [1, 2, 3, 4, 5, 6], income: [0, 6, 12, 18, 30, 42, 60] },
-  T: { label: 'Торговые посты', subs: true, levels: [1, 2, 3, 4, 5], income: [0, 0, 0, 0, 0, 0] },
+  D: { label: 'Деревни', labelSingular: 'Деревня', subs: false, income: CITY_INCOME },
+  Z: { label: 'Заводы', labelSingular: 'Завод', subs: false, income: CITY_INCOME },
+  G: { label: 'Городки', labelSingular: 'Городок', subs: false, income: CITY_INCOME },
+  M: { label: 'Мегаполисы', labelSingular: 'Мегаполис', subs: false, income: CITY_INCOME },
+  C: { label: 'Центры исследований', labelSingular: 'Центр исследований', subs: false, income: CITY_INCOME },
+  V: { label: 'Военные комплексы', labelSingular: 'Военный комплекс', subs: false, income: CITY_INCOME },
+  B: { label: 'Бастионы', labelSingular: 'Бастион', subs: true, levels: [1, 2, 3, 4, 5, 6], income: [0, 6, 12, 18, 30, 42, 60] },
+  T: { label: 'Торговые посты', labelSingular: 'Торговый пост', subs: true, levels: [1, 2, 3, 4, 5], income: [0, 0, 0, 0, 0, 0] },
 };
 
 export const LEVEL_BY_TYPE = { D: 1, Z: 2, G: 3, M: 4, C: 5, V: 6 };
