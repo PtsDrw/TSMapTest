@@ -43,14 +43,25 @@ function actionButtons(a, i, total, pad) {
     <button class="del-alliance text-red-500 ${pad}" data-id="${a.id}"><i class="fas fa-trash"></i></button>`;
 }
 
+/** Кнопка «показать территории союза на карте». */
+function showOnMapButton(a, pad, kind) {
+  const isFlash = kind === 'flash';
+  const title = isFlash ? 'Показать территории на карте' : 'Выделить территории союза';
+  const cls = isFlash ? 'show-on-map text-sky-600' : 'select-alliance-territories text-sky-600';
+  return `<button class="${cls} ${pad}" data-id="${a.id}" title="${title}"><i class="fas fa-${isFlash ? 'crosshairs' : 'object-group'}"></i></button>`;
+}
+
 /**
  * Одна строка/карточка союза.
  * layout 'card' — крупная карточка (manager), 'row' — компактная строка (admin).
+ * showOnMap: 'flash' — мигающая обводка (гость), 'select' — выделение (управляющий).
  */
-function allianceItemHtml(a, i, total, s, inc, layout, actions = true) {
+function allianceItemHtml(a, i, total, s, inc, layout, actions = true, showOnMap = null) {
   const tag = escapeHtml(a.tag);
   const name = escapeHtml(a.name || '');
-  const buttons = actions ? actionButtons(a, i, total, layout === 'row' ? 'px-0.5' : 'px-1') : '';
+  const pad = layout === 'row' ? 'px-0.5' : 'px-1';
+  const buttons = actions ? actionButtons(a, i, total, pad) : '';
+  const mapBtn = showOnMap ? showOnMapButton(a, pad, showOnMap) : '';
   if (layout === 'row') {
     return `
       <div class="flex items-center gap-1 py-1.5 border-b dark:border-gray-700 text-xs">
@@ -64,6 +75,7 @@ function allianceItemHtml(a, i, total, s, inc, layout, actions = true) {
           ${statsLine(s)}
           ${incomeLine(inc, 'w-3 h-3')}
         </div>
+        ${mapBtn}
         ${buttons}
       </div>`;
   }
@@ -79,6 +91,7 @@ function allianceItemHtml(a, i, total, s, inc, layout, actions = true) {
         ${statsLine(s)}
         ${incomeLine(inc, 'w-3.5 h-3.5')}
       </div>
+      ${mapBtn}
       ${buttons}
     </div>`;
 }
@@ -88,14 +101,16 @@ function allianceItemHtml(a, i, total, s, inc, layout, actions = true) {
  * @param {HTMLElement|string} container
  * @param {Array} alliances
  * @param {{stats:Object, incomes:Object, layout?:'card'|'row', actions?:boolean, emptyText?:string,
- *          onMoveRank?:Function, onEdit?:Function, onDelete?:Function}} options
+ *          showOnMap?:'flash'|'select'|null,
+ *          onMoveRank?:Function, onEdit?:Function, onDelete?:Function,
+ *          onShowOnMap?:Function}} options
  */
 export function renderAlliancesRanking(container, alliances, options = {}) {
   const list = typeof container === 'string' ? document.getElementById(container) : container;
   if (!list) return;
   const {
     stats = {}, incomes = {}, layout = 'card', actions = true,
-    emptyText = 'Нет союзов',
+    emptyText = 'Нет союзов', showOnMap = null,
   } = options;
 
   if (!alliances.length) {
@@ -106,8 +121,15 @@ export function renderAlliancesRanking(container, alliances, options = {}) {
   list.innerHTML = alliances.map((a, i) => {
     const s = stats[a.id] || { bastions: 0, general: 0, trade: 0, total: 0 };
     const inc = incomes[a.id] || { city: 0, bastion: 0 };
-    return allianceItemHtml(a, i, alliances.length, s, inc, layout, actions);
+    return allianceItemHtml(a, i, alliances.length, s, inc, layout, actions, showOnMap);
   }).join('');
+
+  if (showOnMap) {
+    bind(list, {
+      '.show-on-map': (b) => options.onShowOnMap?.(b.dataset.id, 'flash'),
+      '.select-alliance-territories': (b) => options.onShowOnMap?.(b.dataset.id, 'select'),
+    });
+  }
 
   if (!actions) return;
 

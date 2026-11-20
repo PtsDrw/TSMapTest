@@ -28,6 +28,10 @@ let isDragging = false;
 let dragTargetId = null;
 let dragStartSettings = null;
 let dragStartPoint = null;
+// Таймер мигающей обводки территорий союза (страница гостя)
+let flashTimer = null;
+// Исходные позиции подсвеченных территорий — для восстановления порядка
+let flashOrder = [];
 
 // Перекраска состояния pan/zoom после смены режима (заполняется в addMapControls)
 let refreshPanState = null;
@@ -1035,6 +1039,80 @@ export function selectAllFiltered(filterFn) {
   if (!svgRoot) return 0;
   let count = 0;
   getAllTerritoryIds().forEach(id => { if (!filterFn || filterFn(id)) { selectTerritory(id, true); count++; } });
+  return count;
+}
+
+/**
+ * Мигающая обводка территорий союза — для страницы гостя.
+ * Карта остаётся доступной: класс только рисует обводку через CSS.
+ * @returns {number} сколько территорий подсвечено
+ */
+export function flashAllianceTerritories(allianceId, durationMs = 5000) {
+  if (!svgRoot) return 0;
+  clearAllianceFlash();
+
+  // Считаем по фактически подсвеченным элементам: в Firestore могут остаться
+  // назначения для территорий, которых нет в текущем SVG.
+  const targets = [];
+  Object.keys(territoryAssignments).forEach(id => {
+    if (territoryAssignments[id] !== allianceId) return;
+    const el = svgRoot.getElementById(id);
+    if (!el || !el.classList.contains('territory')) return;
+    targets.push(el);
+  });
+
+  // Обводка рисуется внутри элемента, поэтому соседи, отрисованные позже,
+  // перекрывают её половину. На время подсветки поднимаем территории в конец
+  // родителя, а после — возвращаем на исходные места.
+  flashOrder = targets.map(el => ({
+    el,
+    parent: el.parentNode,
+    next: el.nextSibling,
+  }));
+  targets.forEach(el => el.parentNode.appendChild(el));
+  targets.forEach(el => el.classList.add('flash'));
+
+  if (targets.length) {
+    flashTimer = setTimeout(clearAllianceFlash, durationMs);
+  }
+  return targets.length;
+}
+
+/** Снимает мигающую обводку досрочно и восстанавливает порядок элементов. */
+export function clearAllianceFlash() {
+  if (flashTimer) { clearTimeout(flashTimer); flashTimer = null; }
+  svgRoot?.querySelectorAll('.territory.flash').forEach(el => el.classList.remove('flash'));
+  // Возвращаем элементы на исходные позиции (обход в обратном порядке,
+  // чтобы nextSibling каждого был ещё актуален)
+  for (let i = flashOrder.length - 1; i >= 0; i--) {
+    const { el, parent, next } = flashOrder[i];
+    if (!el || !parent) continue;
+    if (next && next.parentNode === parent) parent.insertBefore(el, next);
+    else parent.appendChild(el);
+  }
+  flashOrder = [];
+}
+
+/** Плавно прокручивает страницу к карте (кнопка в списке союзов). */
+export function scrollToMap(containerId = 'map-container') {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** Выделяет все территории союза (кабинет управляющего). */
+export function selectAllianceTerritories(allianceId, { additive = false, assignments = null } = {}) {
+  if (!svgRoot) return 0;
+  if (!additive) clearSelection();
+  const map = assignments || territoryAssignments;
+  let count = 0;
+  Object.keys(map).forEach(id => {
+    if (map[id] !== allianceId) return;
+    const el = svgRoot.getElementById(id);
+    if (!el || !el.classList.contains('territory')) return;
+    selectTerritory(id, true);
+    count++;
+  });
   return count;
 }
 

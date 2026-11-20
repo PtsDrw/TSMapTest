@@ -32,6 +32,29 @@
   stroke: #fbbf24;
 }
 
+/* ⭐ Мигающая обводка территорий союза (кнопка в списке союзов у гостя) */
+@keyframes territory-flash {
+  0%, 100% { stroke: #dc2626; stroke-width: 2.5px; }
+  50% { stroke: #111827; stroke-width: 4.5px; }
+}
+.territory.flash {
+  animation: territory-flash 0.7s ease-in-out infinite;
+  /* drop-shadow даёт обводке читаемость на любом цвете территории */
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.9));
+}
+@keyframes territory-flash-dark {
+  0%, 100% { stroke: #fbbf24; stroke-width: 2.5px; }
+  50% { stroke: #ef4444; stroke-width: 4.5px; }
+}
+.dark .territory.flash {
+  animation-name: territory-flash-dark;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8));
+}
+@media (prefers-reduced-motion: reduce) {
+  .territory.flash { animation: none; stroke: #dc2626; stroke-width: 4px; }
+  .dark .territory.flash { stroke: #ef4444; }
+}
+
 .arcadia { pointer-events: none; fill: #f4f4f4; cursor: default; }
 
 #labels .label {

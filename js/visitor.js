@@ -4,6 +4,7 @@ import { initTheme, toast } from './utils.js';
 import {
   initMap, setupLabelsToggle, exportMapPNG, getTerritoryAssignments,
   computeAllianceStats, computeAllianceIncomes,
+  flashAllianceTerritories, scrollToMap,
 } from './map-core.js';
 import { renderAlliancesRanking } from './common-ui.js';
 import { loginWithKey, loginAdmin, validateSession } from './auth.js';
@@ -51,6 +52,12 @@ async function renderAlliancesList() {
     incomes: computeAllianceIncomes(assignments),
     layout: 'row',
     actions: false,
+    showOnMap: 'flash',
+    onShowOnMap: (id) => {
+      const count = flashAllianceTerritories(id, 5000);
+      scrollToMap('map-container');
+      if (!count) toast('У этого союза нет территорий', 'error');
+    },
   });
 }
 
