@@ -145,6 +145,92 @@
   .map-jump-btn { width: 42px; height: 42px; font-size: 17px; }
 }
 
+/* ⭐ Нижняя панель «Размещение надписей» на телефоне (полноэкранный режим) */
+.fs-labels-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 35;
+  max-height: 62%;
+  overflow-y: auto;
+  padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: rgba(255, 255, 255, 0.97);
+  border-top: 1px solid #e5e7eb;
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.18);
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+.dark .fs-labels-sheet {
+  background: rgba(31, 41, 55, 0.98);
+  border-top-color: #374151;
+}
+/* Внутри нижней панели блок надписей не нуждается в верхней границе */
+.fs-labels-sheet #fs-labels-section { border-top: 0; padding-top: 0; }
+
+/* ⭐ Тачпад для перемещения подписи (телефон) */
+.fs-touchpad {
+  position: relative;
+  width: 100%;
+  height: 96px;
+  border-radius: 10px;
+  border: 1.5px dashed #a78bfa;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(167, 139, 250, 0.08) 0 10px,
+    rgba(167, 139, 250, 0.16) 10px 20px
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.fs-touchpad.is-active {
+  border-style: solid;
+  border-color: #7c3aed;
+  background: rgba(124, 58, 237, 0.14);
+}
+.fs-touchpad-icon {
+  font-size: 20px;
+  color: #8b5cf6;
+  opacity: 0.55;
+  pointer-events: none;
+}
+.fs-touchpad-hint {
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #6d28d9;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 1px 6px;
+  border-radius: 6px;
+  pointer-events: none;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fs-touchpad.is-empty { opacity: 0.65; }
+.dark .fs-touchpad-hint {
+  color: #ddd6fe;
+  background: rgba(31, 41, 55, 0.85);
+}
+.dark .fs-touchpad {
+  border-color: #8b5cf6;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(139, 92, 246, 0.1) 0 10px,
+    rgba(139, 92, 246, 0.2) 10px 20px
+  );
+}
+.dark .fs-touchpad-icon { color: #c4b5fd; }
+
 .arcadia { pointer-events: none; fill: #f4f4f4; cursor: default; }
 
 #labels .label {

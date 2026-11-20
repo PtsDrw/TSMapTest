@@ -59,6 +59,87 @@ export function isMapEditMode() {
   return !!svgRoot?.parentElement?._getEditMode?.();
 }
 
+/** Тач-устройство (телефон/планшет) — там жесты идут через touch-события. */
+export function isTouchDevice() {
+  return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+}
+
+/** Карта открыта на весь экран (нативный fullscreen или CSS-fallback). */
+export function isMapFullscreen() {
+  const c = svgRoot?.parentElement;
+  if (!c) return false;
+  return c.classList.contains('is-fullscreen') || c.classList.contains('fullscreen-fallback');
+}
+
+/**
+ * Сообщает подписчикам о смене полноэкранного режима. Нужен потому, что при
+ * CSS-fallback (iPhone, где у div нет requestFullscreen) браузер не присылает
+ * fullscreenchange, и панели не узнали бы о переключении.
+ */
+function notifyFullscreenLayout() {
+  window.dispatchEvent(new Event('map-fullscreenchange'));
+}
+
+/**
+ * Принудительно задаёт видимость «скрытого текста» (подписи, не влезающие
+ * в территорию). Возвращает актуальное состояние.
+ */
+export function setHiddenLabelsVisible(val) {
+  const next = !!val;
+  if (showHiddenLabels === next) return next;
+  showHiddenLabels = next;
+  buildLabelsLayer();
+  return next;
+}
+// Режим размещения надписей: тап по территории должен её выделять даже при
+// выключенном общем редактировании карты (актуально для полноэкранной панели).
+// Включается вместе с режимом надписей в setLabelEditMode().
+let labelPickMode = false;
+
+/**
+ * На телефоне в полноэкранном режиме подпись двигают тачпадом в нижней панели,
+ * поэтому перетаскивание пальцем по карте отключается, а тап — выделяет.
+ */
+function touchLabelPicking() {
+  return labelPickMode && isTouchDevice() && isMapFullscreen();
+}
+
+/**
+ * Сдвигает подписи территорий на delta в экранных пикселях.
+ * Нужен тачпаду в нижней панели: палец двигается по площадке, а подписи
+ * смещаются относительно текущих значений — сам текст пальцем не закрыт.
+ * @param {string|string[]} ids одна территория или список
+ * @returns {number} сколько подписей сдвинуто
+ */
+export function nudgeLabelByScreen(ids, dxPx, dyPx) {
+  if (!svgRoot) return 0;
+  const list = Array.isArray(ids) ? ids : [ids];
+  const ctm = svgRoot.getScreenCTM();
+  const sx = ctm && ctm.a ? Math.abs(ctm.a) : 1;
+  const sy = ctm && ctm.d ? Math.abs(ctm.d) : 1;
+  let count = 0;
+  list.forEach((id) => {
+    if (!id || !svgRoot.getElementById(id)) return;
+    if (!labelSettings[id]) labelSettings[id] = {};
+    const cfg = labelSettings[id];
+    cfg.dx = (cfg.dx || 0) + dxPx / sx;
+    cfg.dy = (cfg.dy || 0) + dyPx / sy;
+    count++;
+  });
+  if (count) buildLabelsLayer();
+  return count;
+}
+
+/** Сохраняет настройки подписей территорий (после жеста тачпада). */
+export async function commitLabelSettings(ids) {
+  const list = (Array.isArray(ids) ? ids : [ids]).filter((id) => id && labelSettings[id]);
+  if (!list.length) return;
+  const payload = {};
+  list.forEach((id) => { payload[id] = labelSettings[id]; });
+  await saveLabelSettings(payload);
+  if (typeof window.updateSlidersFromSelection === 'function') window.updateSlidersFromSelection();
+}
+
 /** Прерывает перетаскивание подписи, не сохраняя результат. */
 function cancelLabelDrag() {
   isDragging = false;
@@ -79,7 +160,10 @@ export function setDragMode(val) {
 }
 
 // Режим редактирования надписей живёт в модулях страниц; здесь только перерисовка.
-export function setLabelEditMode() {
+// Заодно включаем «режим выбора»: пока размещаются подписи, тап по территории
+// должен её выделять, даже если общее редактирование карты выключено.
+export function setLabelEditMode(val = true) {
+  labelPickMode = !!val;
   buildLabelsLayer();
 }
 
@@ -606,8 +690,10 @@ function addMapControls(container, pz, interactive, handleTerritoryClick, onFull
       svg.style.touchAction = 'none';
       svg.querySelectorAll('*').forEach(el => { el.style.touchAction = 'none'; });
     }
-    // В режиме перетаскивания подписей карта не должна двигаться под пальцем/курсором
-    const allowPan = panEnabled && !isDragMode;
+    // В режиме перетаскивания подписей карта не должна двигаться под пальцем/курсором.
+    // Исключение — тач-устройства в полноэкранном режиме: там подпись двигают
+    // тачпадом, а тап по карте выделяет территорию — pan остаётся доступным.
+    const allowPan = panEnabled && (!isDragMode || touchLabelPicking());
     if (allowPan) { pz.enablePan(); } else { pz.disablePan(); }
     pz.enableZoom();
   };
@@ -622,6 +708,9 @@ function addMapControls(container, pz, interactive, handleTerritoryClick, onFull
 
   const onPointerDown = (e) => {
     if (!interactive || !isDragMode) return;
+    // На телефоне подпись двигают тачпадом в нижней панели, а тап по карте
+    // должен выделять территорию — перетаскивание пальцем по карте отключено.
+    if (touchLabelPicking() && e.touches) return;
     // Двумя пальцами — это пинч-зум, а не перетаскивание подписи
     if (e.touches && e.touches.length > 1) { cancelLabelDrag(); return; }
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
@@ -781,7 +870,7 @@ function addMapControls(container, pz, interactive, handleTerritoryClick, onFull
     // парный click с задержкой до 300 мс, и при 250 мс окно информации
     // успевало открыться второй раз.
     container._suppressClick = false;
-    if (isDragMode) return;
+    if (isDragMode && !touchLabelPicking()) return;
     if (e.touches.length !== 1) { tapData = null; return; }
     const t = e.touches[0];
     tapData = { x: t.clientX, y: t.clientY, time: Date.now(), moved: false };
@@ -789,7 +878,7 @@ function addMapControls(container, pz, interactive, handleTerritoryClick, onFull
   };
 
   const onTouchMove = (e) => {
-    if (isDragMode) return;
+    if (isDragMode && !touchLabelPicking()) return;
     if (e.touches.length !== 1) return;
     const t = e.touches[0];
     if (tapData && !tapData.moved) {
@@ -804,7 +893,7 @@ function addMapControls(container, pz, interactive, handleTerritoryClick, onFull
   };
 
   const onTouchEnd = (e) => {
-    if (isDragMode) return;
+    if (isDragMode && !touchLabelPicking()) return;
     let handled = false;
     if (tapData && !tapData.moved && !scrollMoved) {
       const dt = Date.now() - tapData.time;
@@ -844,13 +933,20 @@ function addMapControls(container, pz, interactive, handleTerritoryClick, onFull
 
   const enterFullscreen = async () => {
     savedEdit = editMode; savedPan = panEnabled; editMode = false; panEnabled = true; isFullscreen = true; fullscreenEditPanel = false;
-    render(); applyInteraction(); container.classList.add('is-fullscreen');
+    container.classList.add('is-fullscreen');
+    // applyInteraction() читает isMapFullscreen(): класс уже должен быть на месте,
+    // иначе режим тачпада (D&D на телефоне) не учтётся и pan останется выключенным.
+    render(); applyInteraction();
     try {
       if (container.requestFullscreen) await container.requestFullscreen();
       else if (container.webkitRequestFullscreen) await container.webkitRequestFullscreen();
       else if (container.msRequestFullscreen) await container.msRequestFullscreen();
       else { container.classList.add('fullscreen-fallback'); document.body.classList.add('no-scroll'); }
-    } catch (e) {}
+    } catch (e) { container.classList.add('fullscreen-fallback'); document.body.classList.add('no-scroll'); }
+    // На iPhone у div нет requestFullscreen, а при CSS-fallback событие
+    // fullscreenchange не приходит вовсе. Будим слушателей, которые
+    // пересчитывают раскладку панелей по факту смены режима.
+    notifyFullscreenLayout();
     setTimeout(() => { pz.resize(); pz.fit(); pz.center(); }, 200);
   };
 
@@ -862,6 +958,7 @@ function addMapControls(container, pz, interactive, handleTerritoryClick, onFull
       if (document.fullscreenElement) await document.exitFullscreen();
       else if (document.webkitFullscreenElement) await document.webkitExitFullscreen();
     } catch (e) {}
+    notifyFullscreenLayout();
     setTimeout(() => { pz.resize(); pz.fit(); pz.center(); }, 200);
   };
 
@@ -928,10 +1025,12 @@ export async function initMap({ containerId, interactive = false, clickHandler =
       return;
     }
     if (container.classList.contains('is-fullscreen') && !container._getEditMode()) {
+      if (labelPickMode && clickHandler) { clickHandler(id, el); return; }
       showTerritoryInfo(id);
       return;
     }
     if (!container._getEditMode()) {
+      if (labelPickMode && clickHandler) { clickHandler(id, el); return; }
       showTerritoryInfo(id);
       return;
     }
@@ -1032,6 +1131,7 @@ export function clearSelection() {
   if (!svgRoot) return;
   svgRoot.querySelectorAll('.territory.selected').forEach(t => t.classList.remove('selected'));
   selectedTerritories.clear();
+  labelSelectionHook?.();
 }
 export function getSelected() { return Array.from(selectedTerritories); }
 export function selectTerritory(id, selected = true) {
@@ -1040,6 +1140,14 @@ export function selectTerritory(id, selected = true) {
   if (!el) return;
   el.classList.toggle('selected', selected);
   if (selected) selectedTerritories.add(id); else selectedTerritories.delete(id);
+  labelSelectionHook?.();
+}
+
+// Хук «изменился набор выделенных территорий» — нужен нижней панели подписей,
+// чтобы показать тачпад только когда есть что двигать.
+let labelSelectionHook = null;
+export function setLabelSelectionHook(fn) {
+  labelSelectionHook = typeof fn === 'function' ? fn : null;
 }
 
 export function selectAllFiltered(filterFn) {

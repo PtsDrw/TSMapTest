@@ -15,7 +15,7 @@ import {
   setupLabelsToggle, setupUnassignedIconsToggle,
   computeAllianceStats, computeAllianceIncomes,
   isLabelsVisible, isUnassignedIconsVisible,
-  isHiddenLabelsVisible, toggleHiddenLabelsExternal,
+  isHiddenLabelsVisible, toggleHiddenLabelsExternal, setHiddenLabelsVisible,
   setDragMode, setLabelEditMode as setLabelEditModeCore,
   setMapEditMode, isMapEditMode,
   selectAllianceTerritories, scrollToMap, focusAllianceTerritories,
@@ -400,18 +400,21 @@ function enableDragDrop(val) {
   setDragMode(val);
   const fsDD = document.getElementById('fs-chk-drag-drop');
   if (fsDD) fsDD.checked = val;
+  document.getElementById('fullscreen-edit-panel')?.applyTouchpadState?.();
   return true;
 }
 
 /** Переключает режим подписей из любого источника (главная или FS-панель). */
 function setLabelEditMode(val) {
   labelEditMode = val;
-  setLabelEditModeCore();
+  setLabelEditModeCore(val);
 
   ['chk-edit-labels-mode', 'fs-chk-edit-labels'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.checked = val;
   });
+  // Нижняя панель на телефоне и состояние ползунков в FS-панели
+  document.getElementById('fullscreen-edit-panel')?.refreshLabelsMode?.(val);
   if (!val) enableDragDrop(false);
 
   clearSelection();
@@ -816,11 +819,18 @@ function initFsPanel() {
     onClearFiltered: clearFilteredAssignments,
     onShuffleColors: () => shuffleColors(),
     onSetEditLabels: (val) => setLabelEditMode(val),
+    onSetHiddenLabels: (val) => {
+      // Как в основной панели: режим надписей показывает скрытый текст
+      setHiddenLabelsVisible(val);
+      const cb = document.getElementById('chk-show-hidden');
+      if (cb) cb.checked = isHiddenLabelsVisible();
+    },
     onSetDragDrop: (val) => enableDragDrop(val),
     onPatchLabels: (mutator) => { patchLabels(mutator); },
     onResetLabels: async (ids) => { await saveLabelSettings(resetLabelCfg(getLabelSettings(), ids), false); },
     onSaveLabels: async () => { await saveLabelSettings(getLabelSettings()); },
     onSyncSliders: () => updateSlidersFromSelection(),
+    isLabelEditMode: () => labelEditMode,
   });
 
   // Панель создаётся скрытой — переносим в неё текущий режим и лимиты

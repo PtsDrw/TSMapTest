@@ -536,6 +536,7 @@ function enableDragDrop(val) {
   setDragMode(val);
   const fsDD = document.getElementById('fs-chk-drag-drop');
   if (fsDD) fsDD.checked = val;
+  document.getElementById('fullscreen-edit-panel')?.applyTouchpadState?.();
   return true;
 }
 
@@ -555,7 +556,7 @@ function setLabelEditMode(val) {
     if (el) el.checked = val;
   });
   setControlsEnabled(document.getElementById('label-selection-controls'), val);
-  setControlsEnabled(document.getElementById('fs-label-controls'), val);
+  document.getElementById('fullscreen-edit-panel')?.refreshLabelsMode?.(val);
 
   if (!val) enableDragDrop(false);
   clearSelection();
@@ -658,6 +659,10 @@ function initFsPanel() {
       shuffleColors();
     },
     onSetEditLabels: (val) => setLabelEditMode(val),
+    onSetHiddenLabels: (val) => {
+      // Как кнопка «Скрытый текст» на тулбаре: в режиме надписей показываем всё
+      if (val && !isHiddenLabelsVisible()) document.getElementById('btn-toggle-hidden')?.click();
+    },
     onSetDragDrop: (val) => enableDragDrop(val),
     onPatchLabels: (mutator) => {
       const patched = patchSelectedLabels(mutator);
@@ -668,6 +673,7 @@ function initFsPanel() {
     },
     onSaveLabels: async () => { await saveLabelSettings(getLabelSettings()); },
     onSyncSliders: () => updateSlidersFromSelection(),
+    isLabelEditMode: () => labelEditMode,
   });
 
   // Панель создаётся скрытой — синхронизируем текущий режим

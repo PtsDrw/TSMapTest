@@ -1,7 +1,7 @@
 // Единая полноэкранная панель инструментов для администратора и управляющего.
 // Заменяет ~200 строк дублирующегося HTML и обработчиков в admin.js и manager.js.
 
-import { getSelected } from './map-core.js';
+import { getSelected, nudgeLabelByScreen, commitLabelSettings, isMapFullscreen, setLabelSelectionHook } from './map-core.js';
 import { toast, customConfirm, setControlsEnabled } from './utils.js';
 import { paintFsToolButton } from './common-ui.js';
 import { FS_TOOL_BTN, ICONS } from './constants.js';
@@ -10,13 +10,7 @@ import { FS_TOOL_BTN, ICONS } from './constants.js';
 // HTML-шаблон панели
 // ═══════════════════════════════════════════════════════════════
 
-function panelHtml({ limits = false, dragDrop = false } = {}) {
-  const dragDropRow = dragDrop ? `
-            <label class="flex items-center text-[10px] cursor-pointer text-blue-600 dark:text-blue-400 font-semibold mt-1">
-              <input type="checkbox" id="fs-chk-drag-drop" class="mr-1">
-              Перетаскивание (D&amp;D)
-            </label>` : '';
-
+function panelHtml({ limits = false } = {}) {
   const limitsBlock = limits ? `
         <!-- ─── Лимиты ─── -->
         <div class="pt-2 border-t dark:border-gray-700">
@@ -103,41 +97,75 @@ ${respectLimitsRow}
 ${clearFilteredRow}
         </div>
 
-        <div class="pt-2 border-t dark:border-gray-700 space-y-2">
-          <div class="flex items-center justify-between">
-            <div class="font-semibold text-xs text-purple-600 dark:text-purple-400"><i class="fas fa-font mr-1"></i>Размещение надписей</div>
-            <label class="flex items-center text-[10px] cursor-pointer text-gray-600 dark:text-gray-400">
-              <input type="checkbox" id="fs-chk-edit-labels" class="mr-1">
-              Вкл
-            </label>
-          </div>${dragDropRow}
-          <div id="fs-label-controls" class="space-y-2 opacity-50 pointer-events-none transition-opacity">
-            <div class="grid grid-cols-2 gap-1">
-              <button id="fs-btn-select-all-labels" class="px-1 py-1 bg-blue-600 text-white rounded text-[10px] hover:bg-blue-700">Выбрать все</button>
-              <button id="fs-btn-clear-selection-labels" class="px-1 py-1 bg-gray-600 text-white rounded text-[10px] hover:bg-gray-700">Снять</button>
-            </div>
-            <div><label class="text-[10px]">Смещение X</label><input type="range" id="fs-lbl-dx" min="-50" max="50" step="1" value="0" class="w-full"></div>
-            <div><label class="text-[10px]">Смещение Y</label><input type="range" id="fs-lbl-dy" min="-50" max="50" step="1" value="0" class="w-full"></div>
-            <div><label class="text-[10px]">Поворот</label><input type="range" id="fs-lbl-rot" min="-180" max="180" step="5" value="0" class="w-full"></div>
-            <div><label class="text-[10px]">Масштаб</label><input type="range" id="fs-lbl-scale" min="0.3" max="3" step="0.1" value="1" class="w-full"></div>
-            <button id="fs-btn-reset-labels" class="w-full px-1 py-1 bg-orange-600 text-white rounded text-[10px] hover:bg-orange-700">Сбросить выбранные</button>
-          </div>
-        </div>
-
         <div class="pt-2 border-t dark:border-gray-700">
           <button id="fs-btn-shuffle-colors" class="w-full px-2 py-2 bg-pink-600 text-white rounded text-xs hover:bg-pink-700 font-semibold">
             <i class="fas fa-random mr-1"></i>Перемешать цвета
           </button>
         </div>
-
-        <div class="pt-2 border-t dark:border-gray-700">
-          <button id="fs-btn-save-labels" class="w-full px-2 py-2 bg-green-600 text-white rounded text-xs hover:bg-green-700 font-semibold">
-            <i class="fas fa-save mr-1"></i>Применить подписи
-          </button>
-        </div>
 ${limitsBlock}
         </div>
+
+        <!-- Сюда встаёт блок «Размещение надписей» на десктопе. Он живёт вне
+             fs-tools-body: у блока собственный переключатель, поэтому общее
+             «редактирование карты выключено» не должно гасить ползунки. -->
+        <div id="fs-labels-slot"></div>
       </div>
+    </div>`;
+}
+/**
+ * Блок «Размещение надписей». Живёт отдельно от panelHtml: на телефоне он
+ * переезжает в нижнюю панель, на десктопе — в основную панель инструментов.
+ * Ползунки гасит только собственный переключатель «Вкл», а не общий режим
+ * редактирования карты.
+ */
+function labelsSectionHtml(dragDrop = false) {
+  const dragDropRow = dragDrop ? `
+            <label class="flex items-center text-[10px] cursor-pointer text-blue-600 dark:text-blue-400 font-semibold mt-1">
+              <input type="checkbox" id="fs-chk-drag-drop" class="mr-1">
+              Перетаскивание (D&amp;D)
+            </label>` : '';
+
+  return `
+    <div id="fs-labels-section" class="pt-2 border-t dark:border-gray-700 space-y-2">
+      <div class="flex items-center justify-between">
+        <div class="font-semibold text-xs text-purple-600 dark:text-purple-400"><i class="fas fa-font mr-1"></i>Размещение надписей</div>
+        <div class="flex items-center gap-2">
+          <label class="flex items-center text-[10px] cursor-pointer text-gray-600 dark:text-gray-400">
+            <input type="checkbox" id="fs-chk-edit-labels" class="mr-1">
+            Вкл
+          </label>
+          <button id="fs-close-labels-sheet" type="button" class="hidden text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" title="Закрыть размещение надписей" aria-label="Закрыть размещение надписей"><i class="fas fa-times"></i></button>
+        </div>
+      </div>${dragDropRow}
+      <div id="fs-label-controls" class="space-y-2 opacity-50 pointer-events-none transition-opacity">
+        <div class="grid grid-cols-2 gap-1">
+          <button id="fs-btn-select-all-labels" class="px-1 py-1 bg-blue-600 text-white rounded text-[10px] hover:bg-blue-700">Выбрать все</button>
+          <button id="fs-btn-clear-selection-labels" class="px-1 py-1 bg-gray-600 text-white rounded text-[10px] hover:bg-gray-700">Снять</button>
+        </div>
+        <div id="fs-label-sliders" class="space-y-2">
+          <div><label class="text-[10px]">Смещение X</label><input type="range" id="fs-lbl-dx" min="-50" max="50" step="1" value="0" class="w-full"></div>
+          <div><label class="text-[10px]">Смещение Y</label><input type="range" id="fs-lbl-dy" min="-50" max="50" step="1" value="0" class="w-full"></div>
+          <div><label class="text-[10px]">Поворот</label><input type="range" id="fs-lbl-rot" min="-180" max="180" step="5" value="0" class="w-full"></div>
+          <div><label class="text-[10px]">Масштаб</label><input type="range" id="fs-lbl-scale" min="0.3" max="3" step="0.1" value="1" class="w-full"></div>
+          <button id="fs-btn-reset-labels" class="w-full px-1 py-1 bg-orange-600 text-white rounded text-[10px] hover:bg-orange-700">Сбросить выбранные</button>
+        </div>
+        <div id="fs-touchpad-wrap" class="hidden">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-[10px] font-semibold text-purple-600 dark:text-purple-400">Тачпад подписи</span>
+            <span id="fs-touchpad-offset" class="text-[10px] text-gray-500 dark:text-gray-400 font-mono">0 / 0</span>
+          </div>
+          <div id="fs-touchpad" class="fs-touchpad">
+            <i class="fas fa-up-down-left-right fs-touchpad-icon"></i>
+          </div>
+          <p class="text-[10px] text-gray-500 dark:text-gray-400 leading-tight mt-1">
+            Ведите пальцем по площадке — подпись выбранной территории смещается от текущего значения.
+          </p>
+        </div>
+      </div>
+      <!-- Вне гасимого блока: сохранить подписи можно и при выключенном режиме -->
+      <button id="fs-btn-save-labels" class="w-full px-2 py-2 bg-green-600 text-white rounded text-xs hover:bg-green-700 font-semibold">
+        <i class="fas fa-save mr-1"></i>Применить подписи
+      </button>
     </div>`;
 }
 
@@ -174,6 +202,7 @@ export function createFsPanel(opts) {
     onClearFiltered,
     onShuffleColors,
     onSetEditLabels,
+    onSetHiddenLabels,
     onSetDragDrop,
     onPatchLabels,
     onResetLabels,
@@ -181,6 +210,7 @@ export function createFsPanel(opts) {
     onSyncSliders,
     isEditMode = () => false,
     onSetEditMode,
+    isLabelEditMode = () => false,
   } = opts;
 
   const container = typeof containerId === 'string' ? document.getElementById(containerId) : containerId;
@@ -190,6 +220,23 @@ export function createFsPanel(opts) {
 
   container.insertAdjacentHTML('beforeend', panelHtml(features));
   const panel = document.getElementById('fullscreen-edit-panel');
+  // Нижняя панель для телефона: сюда переезжает блок «Размещение надписей».
+  // Держим её отдельным элементом контейнера — панель имеет backdrop-blur,
+  // а он создаёт containing block и ломает position: fixed внутри себя.
+  let sheet = document.getElementById('fs-labels-sheet');
+  if (!sheet) {
+    sheet = document.createElement('div');
+    sheet.id = 'fs-labels-sheet';
+    sheet.className = 'fs-labels-sheet hidden';
+    container.appendChild(sheet);
+  }
+  // Блок надписей создаётся один раз; место вставки выбирает layoutLabelsSection.
+  const labelsHolder = document.createElement('div');
+  labelsHolder.innerHTML = labelsSectionHtml(features.dragDrop);
+  const labelsSection = labelsHolder.firstElementChild;
+  const labelsSlot = panel.querySelector('#fs-labels-slot');
+  (labelsSlot || panel).appendChild(labelsSection);
+
   const byId = (id) => document.getElementById(id);
   const listen = (id, event, fn) => { const el = byId(id); if (el && fn) el.addEventListener(event, fn); };
 
@@ -270,17 +317,181 @@ export function createFsPanel(opts) {
   // fs-панель только читает событие и зовёт коллбэк; синхронизацию с основной
   // панелью, подсветку блоков и тосты делает страница (admin/manager).
   const fsChkEditLabels = byId('fs-chk-edit-labels');
-  listen('fs-chk-edit-labels', 'change', (e) => onSetEditLabels?.(e.target.checked));
+  const closeSheetBtn = byId('fs-close-labels-sheet');
+
+  // Желаемое состояние правой панели: переключается кнопкой «Инструменты».
+  // На телефоне в режиме надписей панель прячется, но флаг сохраняется,
+  // чтобы после закрытия нижней панели вернуть её обратно.
+  let panelWanted = !panel.classList.contains('hidden');
+  // Тачпад/ползунки определяются ниже — здесь только ссылка
+  let applyTouchpadState = () => {};
+  // Раскладка «как на телефоне» определяется шириной экрана, а не наличием
+  // тач-событий: так нижняя панель появляется и на реальном телефоне,
+  // и в мобильной эмуляции DevTools. Пересчитываем на каждый вызов —
+  // пользователь может повернуть телефон или изменить размер окна.
+  const isPhoneLayout = () => window.matchMedia('(max-width: 1024px)').matches;
+
+  /**
+   * На телефоне в полноэкранном режиме блок «Размещение надписей» уезжает
+   * в нижнюю панель (ближе к пальцам), на десктопе остаётся в панели справа.
+   */
+  const layoutLabelsSection = () => {
+    // Нижняя панель — узкий экран + полноэкранный режим карты + включённый
+    // режим надписей. Вне fullscreen переезда быть не должно: панель
+    // инструментов существует только там.
+    const asSheet = isPhoneLayout() && isMapFullscreen() && !!fsChkEditLabels?.checked;
+    if (asSheet) {
+      if (labelsSection.parentElement !== sheet) sheet.appendChild(labelsSection);
+      sheet.classList.remove('hidden');
+      panel.classList.add('hidden');
+      closeSheetBtn?.classList.remove('hidden');
+    } else {
+      if (labelsSection.parentElement !== labelsSlot) labelsSlot.appendChild(labelsSection);
+      sheet.classList.add('hidden');
+      // Панель показываем только в полноэкранном режиме и только если её
+      // открывали кнопкой «Инструменты» — вне fullscreen её быть не должно.
+      panel.classList.toggle('hidden', !(panelWanted && isMapFullscreen()));
+      closeSheetBtn?.classList.add('hidden');
+    }
+    applyTouchpadState();
+  };
+  panel.layoutLabelsSection = layoutLabelsSection;
+  panel.setPanelWanted = (val) => { panelWanted = !!val; };
+  // Вход/выход из fullscreen и поворот телефона меняют раскладку блока
+  ['fullscreenchange', 'webkitfullscreenchange', 'map-fullscreenchange', 'resize', 'orientationchange']
+    .forEach((evt) => window.addEventListener(evt, () => {
+      panel.layoutLabelsSection?.();
+      applyTouchpadState();
+    }));
+  /** Синхронизирует блок надписей с режимом, включённым из основной панели. */
+  panel.refreshLabelsMode = (val) => {
+    if (fsChkEditLabels) fsChkEditLabels.checked = !!val;
+    setControlsEnabled(byId('fs-label-controls'), !!val);
+    // Режим надписей включён — панель должна быть «открыта», чтобы блок
+    // уехал в нижнюю панель, даже если правая панель инструментов закрыта.
+    if (val) panelWanted = true;
+    layoutLabelsSection();
+  };
+
+  listen('fs-chk-edit-labels', 'change', (e) => {
+    const on = e.target.checked;
+    onSetEditLabels?.(on);
+    // Ползунки гасит только этот переключатель, а не общий режим редактирования
+    setControlsEnabled(byId('fs-label-controls'), on);
+    // Как и в основной панели управляющего: включение режима надписей
+    // автоматически показывает скрытый текст, иначе часть подписей не видна.
+    if (on) onSetHiddenLabels?.(true);
+    layoutLabelsSection();
+  });
+
+  // Крестик закрывает нижнюю панель: режим надписей выключается,
+  // блок возвращается на своё место в панели инструментов.
+  const closeLabelsSheet = () => {
+    if (fsChkEditLabels?.checked) {
+      fsChkEditLabels.checked = false;
+      onSetEditLabels?.(false);
+      setControlsEnabled(byId('fs-label-controls'), false);
+    }
+    layoutLabelsSection();
+  };
+  panel.closeLabelsSheet = closeLabelsSheet;
+  if (closeSheetBtn) closeSheetBtn.addEventListener('click', closeLabelsSheet);
 
   // ─── Перетаскивание ───
   const fsChkDD = byId('fs-chk-drag-drop');
+  const touchpadWrap = byId('fs-touchpad-wrap');
+  const slidersWrap = byId('fs-label-sliders');
+  const touchpadOffset = byId('fs-touchpad-offset');
+
+  /**
+   * Показывает тачпад вместо ползунков при включённом D&D. Только телефон
+   * в полноэкранном режиме: там панель внизу и подпись двигают по площадке,
+   * не перекрывая текст пальцем. В остальных случаях остаются ползунки.
+   */
+  applyTouchpadState = () => {
+    const ddOn = !!fsChkDD?.checked;
+    // Тачпад — только на узком экране в полноэкранном режиме
+    const usePad = isPhoneLayout() && ddOn && isMapFullscreen();
+    if (touchpadWrap) touchpadWrap.classList.toggle('hidden', !usePad);
+    if (slidersWrap) slidersWrap.classList.toggle('hidden', usePad);
+    if (usePad && touchpadOffset) touchpadOffset.textContent = '0 / 0';
+  };
+  panel.applyTouchpadState = applyTouchpadState;
+
   if (fsChkDD) {
     fsChkDD.addEventListener('change', (e) => {
       const wanted = e.target.checked;
       const applied = onSetDragDrop?.(wanted);
       // Коллбэк вернул false — режим надписей выключен, откатываем галку
       if (wanted && applied === false) e.target.checked = false;
+      applyTouchpadState();
     });
+  }
+
+  // ─── Тачпад подписи ───
+  const touchpad = byId('fs-touchpad');
+  if (touchpad) {
+    let padIds = [], padActive = false, padX = 0, padY = 0, lastX = 0, lastY = 0, moved = false;
+
+    // Подсказка о выбранной территории прямо на площадке
+    const padHint = document.createElement('span');
+    padHint.className = 'fs-touchpad-hint';
+    touchpad.appendChild(padHint);
+    const refreshPadHint = () => {
+      const ids = getSelected();
+      padHint.textContent = ids.length
+        ? (ids.length === 1 ? ids[0] : `${ids.length} терр.`)
+        : 'выберите территорию';
+      touchpad.classList.toggle('is-empty', !ids.length);
+    };
+    panel.refreshTouchpadHint = refreshPadHint;
+    refreshPadHint();
+    // Выделение меняется тапом по карте — обновляем подсказку
+    setLabelSelectionHook(refreshPadHint);
+
+    const startPad = (e) => {
+      const ids = getSelected();
+      if (!ids.length) { toast('Сначала выберите территорию на карте', 'error'); return; }
+      // Двигаем подписи всех выделенных территорий: переключение идёт тапом по карте
+      padIds = ids;
+      padActive = true;
+      moved = false;
+      padX = 0; padY = 0;
+      const t = e.touches ? e.touches[0] : e;
+      lastX = t.clientX; lastY = t.clientY;
+      touchpad.classList.add('is-active');
+      if (e.cancelable) e.preventDefault();
+    };
+
+    const movePad = (e) => {
+      if (!padActive || !padIds.length) return;
+      const t = e.touches ? e.touches[0] : e;
+      const dx = t.clientX - lastX;
+      const dy = t.clientY - lastY;
+      lastX = t.clientX; lastY = t.clientY;
+      if (!dx && !dy) return;
+      moved = true;
+      padX += dx; padY += dy;
+      nudgeLabelByScreen(padIds, dx, dy);
+      if (touchpadOffset) touchpadOffset.textContent = `${Math.round(padX)} / ${Math.round(padY)}`;
+      if (e.cancelable) e.preventDefault();
+    };
+
+    const endPad = async () => {
+      if (!padActive) return;
+      padActive = false;
+      touchpad.classList.remove('is-active');
+      if (moved && padIds.length) await commitLabelSettings(padIds);
+      padIds = [];
+    };
+
+    touchpad.addEventListener('mousedown', startPad);
+    window.addEventListener('mousemove', movePad);
+    window.addEventListener('mouseup', endPad);
+    touchpad.addEventListener('touchstart', startPad, { passive: false });
+    touchpad.addEventListener('touchmove', movePad, { passive: false });
+    touchpad.addEventListener('touchend', endPad);
+    touchpad.addEventListener('touchcancel', endPad);
   }
 
   // ─── Слайдеры ───
@@ -333,8 +544,15 @@ export function createFsPanel(opts) {
   });
 
   // ─── Синхронизация с текущим состоянием ───
-  setControlsEnabled(byId('fs-label-controls'), !!fsChkEditLabels?.checked);
+  // Режим надписей мог быть включён ДО создания панели (кнопкой в основной
+  // панели или после перезагрузки страницы). Тогда панель должна стартовать
+  // с актуальным состоянием, иначе на телефоне не появится нижняя панель.
+  const initialLabelMode = !!isLabelEditMode();
+  if (fsChkEditLabels) fsChkEditLabels.checked = initialLabelMode;
+  setControlsEnabled(byId('fs-label-controls'), initialLabelMode);
+  if (initialLabelMode) panelWanted = true;
   refreshEditMode();
+  layoutLabelsSection();
   onSyncSliders?.();
 
   return panel;
@@ -344,11 +562,18 @@ export function createFsPanel(opts) {
 export function setFsPanelVisible(active, { onShown } = {}) {
   const panel = document.getElementById('fullscreen-edit-panel');
   if (!panel) return;
-  panel.classList.toggle('hidden', !active);
+  panel.setPanelWanted?.(active);
   if (active) {
     panel.refreshVisualToggles?.();
     panel.refreshEditMode?.();
+    // На телефоне блок надписей должен оказаться в нижней панели, если режим уже включён
+    panel.layoutLabelsSection?.();
     onShown?.();
+  } else {
+    panel.classList.add('hidden');
+    // Панель закрыта — нижняя панель надписей тоже прячется. Режим надписей
+    // не сбрасываем: он остаётся включённым и вернётся вместе с панелью.
+    document.getElementById('fs-labels-sheet')?.classList.add('hidden');
   }
 }
 
