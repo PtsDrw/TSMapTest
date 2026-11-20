@@ -626,12 +626,20 @@ function addMapControls(container, pz, interactive, handleTerritoryClick, onFull
   // ─── Пинч-зум двумя пальцами ───
   // svg-pan-zoom 3.6.1 не умеет масштабировать двумя пальцами: он всегда читает
   // только touches[0] (touchZoomEnabled/enableTouchZoom в этой версии отсутствуют).
-  // Поэтому жест обрабатываем сами и зовём публичный zoomAtPoint.
+  // Поэтому жест обрабатываем сами и зовём публичный zoomAtPointBy.
+  //
+  // Масштаб считаем НЕ накопительно (каждый кадр × отношение к предыдущему), а
+  // от старта жеста: zoom = startZoom * (dist / startDist). Накопительный вариант
+  // копит ошибку округления и, если жест упирается в minZoom/maxZoom, «залипает»
+  // на границе — из-за этого при повторном сведении карта сначала прыгала в
+  // обратную сторону.
   let pinchStartDist = 0;
+  let pinchStartZoom = null;
+  let pinchStartCenter = null;
 
   const touchDistance = (t1, t2) => Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
 
-  /** Переводит экранную точку в координаты SVG (их ждёт zoomAtPoint). */
+  /** Переводит экранную точку в координаты SVG (их ждёт zoomAtPointBy). */
   const toSvgPoint = (clientX, clientY) => {
     const ctm = svgRoot.getScreenCTM();
     if (!ctm) return null;
@@ -642,31 +650,39 @@ function addMapControls(container, pz, interactive, handleTerritoryClick, onFull
   };
 
   const onPinchStart = (e) => {
-    if (e.touches.length !== 2) { pinchStartDist = 0; return; }
+    if (e.touches.length !== 2) { pinchStartDist = 0; pinchStartZoom = null; return; }
     cancelLabelDrag();
     tapData = null;              // пинч — не тап по территории
     // Библиотека начнёт панорамирование по первому пальцу — на время жеста
     // гасим pan, иначе карта «уползает» под масштабированием.
     pz.disablePan();
     pinchStartDist = touchDistance(e.touches[0], e.touches[1]);
+    pinchStartZoom = pz.getZoom();
+    pinchStartCenter = toSvgPoint(
+      (e.touches[0].clientX + e.touches[1].clientX) / 2,
+      (e.touches[0].clientY + e.touches[1].clientY) / 2,
+    );
     if (e.cancelable) e.preventDefault();
   };
 
   const onPinchMove = (e) => {
-    if (e.touches.length !== 2 || !pinchStartDist) return;
+    if (e.touches.length !== 2 || !pinchStartDist || !pinchStartZoom) return;
     if (e.cancelable) e.preventDefault();
 
     const dist = touchDistance(e.touches[0], e.touches[1]);
     if (!dist) return;
 
-    // Масштабируем относительно середины между пальцами
-    const center = toSvgPoint(
-      (e.touches[0].clientX + e.touches[1].clientX) / 2,
-      (e.touches[0].clientY + e.touches[1].clientY) / 2,
-    );
-    if (center) pz.zoomAtPointBy(dist / pinchStartDist, center);
+    // Точка масштабирования фиксируется на старте жеста: если брать текущую
+    // середину, карта «плывёт» вслед за пальцами и жест кажется рывковым.
+    // getZoom() возвращает относительный зум, поэтому целевой масштаб
+    // пересчитываем в коэффициент к текущему — так границы minZoom/maxZoom
+    // не накапливают ошибку и обратный жест начинается без «отскока».
+    const targetZoom = pinchStartZoom * (dist / pinchStartDist);
+    const currentZoom = pz.getZoom();
+    if (!currentZoom || !pinchStartCenter) return;
+    const factor = targetZoom / currentZoom;
+    if (factor !== 1) pz.zoomAtPointBy(factor, pinchStartCenter);
 
-    pinchStartDist = dist;
     container._suppressClick = true;
   };
 
@@ -674,6 +690,8 @@ function addMapControls(container, pz, interactive, handleTerritoryClick, onFull
     if (e.touches.length >= 2) return;
     if (pinchStartDist) {
       pinchStartDist = 0;
+      pinchStartZoom = null;
+      pinchStartCenter = null;
       applyInteraction();        // возвращаем pan согласно текущим режимам
       setTimeout(() => { container._suppressClick = false; }, 250);
     }
@@ -836,7 +854,11 @@ export async function initMap({ containerId, interactive = false, clickHandler =
         minZoom: 0.4, 
         maxZoom: 12, 
         zoomScaleSensitivity: 0.4, 
-        preventClickEventEnabled: false
+        preventClickEventEnabled: false,
+        // Двойной тап библиотека определяет по двум touchstart подряд (<250 мс,
+        // <10 px) — постановка второго пальца в пинче выглядит для неё точно так же
+        // и даёт резкий зум-скачок в начале жеста. Пинч обрабатываем сами.
+        dblClickZoomEnabled: false
       });
       
       panZoom.enableZoom();
