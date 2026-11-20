@@ -473,6 +473,11 @@ function showTerritoryInfo(id) {
   const lvl = getTerritoryLevel(id);
   if (!type || !lvl) return;
 
+  // На тач-устройствах после touchend приходит парный click. Карточка
+  // модальная, но защищаемся и здесь: вторая копия не должна открыться
+  // поверх первой. Окно в процессе закрытия не блокирует новое.
+  if (document.querySelector('.territory-info-overlay:not([data-closing])')) return;
+
   const typeLabel = TERRITORY_TYPES[type]?.label || 'Территория';
   const isBastion = type === 'B';
   const allianceId = territoryAssignments[id];
@@ -510,7 +515,7 @@ function showTerritoryInfo(id) {
   }
 
   const overlay = document.createElement('div');
-  overlay.className = 'fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 opacity-0 transition-opacity duration-200';
+  overlay.className = 'territory-info-overlay fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 opacity-0 transition-opacity duration-200';
   overlay.innerHTML = `
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-xs overflow-hidden transform scale-95 transition-transform duration-200">
       <div class="p-4">
@@ -530,6 +535,9 @@ function showTerritoryInfo(id) {
   overlay.querySelector('.transform').classList.remove('scale-95');
 
   const close = () => {
+    // Помечаем окно закрывающимся, чтобы тап по другой территории во время
+    // анимации закрытия мог открыть новую карточку, а не был заблокирован.
+    overlay.dataset.closing = '1';
     overlay.classList.add('opacity-0');
     overlay.querySelector('.transform').classList.add('scale-95');
     setTimeout(() => overlay.remove(), 200);
@@ -757,6 +765,11 @@ function addMapControls(container, pz, interactive, handleTerritoryClick, onFull
   container.addEventListener('touchcancel', onPinchEnd, { passive: true });
 
   const onTouchStart = (e) => {
+    // Новый жест — снимаем подавление click от предыдущего тапа.
+    // Само подавление ставится на touchend и живёт до 700 мс: iOS присылает
+    // парный click с задержкой до 300 мс, и при 250 мс окно информации
+    // успевало открыться второй раз.
+    container._suppressClick = false;
     if (isDragMode) return;
     if (e.touches.length !== 1) { tapData = null; return; }
     const t = e.touches[0];
@@ -790,7 +803,11 @@ function addMapControls(container, pz, interactive, handleTerritoryClick, onFull
           let el = document.elementFromPoint(touch.clientX, touch.clientY);
           if (el && el.closest && el.closest('#labels')) el = null;
           const territory = el && el.closest ? el.closest('.territory') : null;
-          if (territory && interactive && editMode) {
+          if (territory) {
+            // Решение «показать информацию или выделить» принимает
+            // handleTerritoryClick: он учитывает interactive и режим редактирования.
+            // Раньше здесь стояло `interactive && editMode`, из-за чего тап не
+            // работал у гостя и при выключенном редактировании.
             handled = true;
             try { handleTerritoryClick(territory.id, territory); } catch (err) { console.error(err); }
           }
@@ -798,8 +815,11 @@ function addMapControls(container, pz, interactive, handleTerritoryClick, onFull
       }
     }
     if (handled || scrollMoved || (tapData && tapData.moved)) {
+      // Гасим парный click после тапа, иначе обработчик сработает дважды.
+      // Флаг снимается на следующем touchstart, таймер — страховка:
+      // iOS присылает click с задержкой до 300 мс.
       container._suppressClick = true;
-      setTimeout(() => { container._suppressClick = false; }, 250);
+      setTimeout(() => { container._suppressClick = false; }, 700);
     }
     tapData = null; scrollTouchY = null; scrollMoved = false;
   };
@@ -1166,6 +1186,8 @@ export async function exportMapPNG(withLabels, theme = 'light') {
     ctx.drawImage(img, 0, 0, width, mapHeight);
     URL.revokeObjectURL(url);
 
+    drawTypeLegend(ctx, t, width, mapHeight);
+
     if (legend.length) {
       ctx.strokeStyle = t.legendLine; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, mapHeight); ctx.lineTo(width, mapHeight); ctx.stroke();
       const colWidth = width / cols;
@@ -1199,8 +1221,92 @@ export async function exportMapPNG(withLabels, theme = 'light') {
   }
 }
 
-function buildLegend() {
-  const stats = computeAllianceStats(territoryAssignments);
+/**
+ * Рисует легенду обозначений (иконки типов территорий) в левом нижнем углу
+ * готового PNG — так же, как она выглядит в браузере на карте.
+ * Иконки рисуются векторно по LEGEND_ICON_POINTS, чтобы совпадать с картой.
+ */
+function drawTypeLegend(ctx, t, width, mapHeight) {
+  const rows = [
+    { kind: 'city', label: 'Города' },
+    { kind: 'bastion', label: 'Бастионы' },
+    { kind: 'trade', label: 'Торговые посты' },
+  ];
+
+  const ICON = 26;            // размер иконки в px
+  const GAP_ICON_TEXT = 12;   // отступ между иконкой и подписью
+  const ROW_H = 38;           // высота строки
+  const PAD = 20;             // внутренние отступы плашки
+  const FONT = 22;
+  const MARGIN = 24;          // отступ от края карты
+
+  ctx.font = `${FONT}px Arial, sans-serif`;
+  const textWidth = Math.max(...rows.map((r) => ctx.measureText(r.label).width));
+  const boxW = PAD * 2 + ICON + GAP_ICON_TEXT + textWidth;
+  const boxH = PAD * 2 + rows.length * ROW_H;
+
+  // Плашка в левом нижнем углу карты
+  const boxX = MARGIN;
+  const boxY = mapHeight - MARGIN - boxH;
+
+  ctx.save();
+  ctx.fillStyle = t.legendBg;
+  ctx.strokeStyle = t.legendBorder;
+  ctx.lineWidth = 2;
+  if (typeof ctx.roundRect === 'function') {
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY, boxW, boxH, 8);
+    ctx.fill();
+    ctx.stroke();
+  } else {
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.strokeRect(boxX, boxY, boxW, boxH);
+  }
+
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+
+  rows.forEach((row, i) => {
+    const cx = boxX + PAD + ICON / 2;
+    const cy = boxY + PAD + i * ROW_H + ROW_H / 2;
+    drawLegendIcon(ctx, row.kind, cx, cy, ICON);
+
+    ctx.fillStyle = t.legendText;
+    ctx.font = `${FONT}px Arial, sans-serif`;
+    ctx.fillText(row.label, boxX + PAD + ICON + GAP_ICON_TEXT, cy);
+  });
+  ctx.restore();
+}
+
+/** Рисует фигуру типа территории по тем же точкам, что и на карте (viewBox 0 0 12 12). */
+function drawLegendIcon(ctx, kind, cx, cy, size) {
+  const pts = (LEGEND_ICON_POINTS[kind] || '').trim().split(/\s+/)
+    .map((pair) => pair.split(',').map(Number))
+    .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+  if (!pts.length) return;
+
+  const colors = ICON_COLORS[kind] || ICON_COLORS.city;
+  const scale = size / 12;
+  const left = cx - size / 2;
+  const top = cy - size / 2;
+
+  ctx.save();
+  ctx.beginPath();
+  pts.forEach(([px, py], i) => {
+    const x = left + px * scale;
+    const y = top + py * scale;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.closePath();
+  ctx.fillStyle = colors.fill;
+  ctx.fill();
+  ctx.strokeStyle = colors.stroke;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function buildLegend() {  const stats = computeAllianceStats(territoryAssignments);
   const incomes = computeAllianceIncomes(territoryAssignments);
   const list = Object.values(allianceMap).sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999));
   return list.map((a, idx) => {

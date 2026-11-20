@@ -104,6 +104,7 @@ export const EXPORT_THEMES = {
     legendLine: '#cccccc',
     legendText: '#000000',
     legendBorder: '#000000',
+    legendBg: 'rgba(255, 255, 255, 0.92)',
   },
   dark: {
     canvasBg: '#1e293b',
@@ -116,6 +117,7 @@ export const EXPORT_THEMES = {
     legendLine: '#334155',
     legendText: '#e2e8f0',
     legendBorder: '#64748b',
+    legendBg: 'rgba(30, 41, 59, 0.92)',
   },
 };
 
