@@ -19,7 +19,7 @@ const BASTION_RES_IMG = 'assets/season_resource.png';
 function incomeLine(inc, size) {
   if (!(inc.city > 0 || inc.bastion > 0)) return '';
   return `
-    <div class="text-[10px] flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+    <div class="text-[10px] alliance-income flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
       ${inc.city > 0 ? `<span class="flex items-center gap-1 text-amber-600 dark:text-amber-400"><img src="${CITY_RES_IMG}" class="${size} inline align-middle" onerror="this.style.display='none'"> ${inc.city} в час</span>` : ''}
       ${inc.bastion > 0 ? `<span class="flex items-center gap-1 text-cyan-600 dark:text-cyan-400"><img src="${BASTION_RES_IMG}" class="${size} inline align-middle" onerror="this.style.display='none'"> ${inc.bastion} в час</span>` : ''}
     </div>`;
@@ -27,7 +27,7 @@ function incomeLine(inc, size) {
 
 function statsLine(s) {
   return `
-    <div class="text-[10px] text-gray-500 dark:text-gray-400 flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
+    <div class="text-[10px] alliance-stats text-gray-500 dark:text-gray-400 flex flex-wrap gap-x-2 gap-y-0.5 mt-1">
       <span><b class="text-gray-700 dark:text-gray-200">${s.total}</b> всего</span>
       <span>Б:<b class="text-gray-700 dark:text-gray-200">${s.bastions}</b></span>
       <span>Г:<b class="text-gray-700 dark:text-gray-200">${s.general}</b></span>
@@ -44,11 +44,11 @@ function actionButtons(a, i, total, pad) {
 }
 
 /** Кнопка «показать территории союза на карте». */
-function showOnMapButton(a, pad, kind) {
+function showOnMapButton(a, kind) {
   const isFlash = kind === 'flash';
   const title = isFlash ? 'Показать территории на карте' : 'Выделить территории союза';
-  const cls = isFlash ? 'show-on-map text-sky-600' : 'select-alliance-territories text-sky-600';
-  return `<button class="${cls} ${pad}" data-id="${a.id}" title="${title}"><i class="fas fa-${isFlash ? 'crosshairs' : 'object-group'}"></i></button>`;
+  const cls = isFlash ? 'show-on-map' : 'select-alliance-territories';
+  return `<button type="button" class="map-jump-btn ${cls}" data-id="${a.id}" title="${title}" aria-label="${title}"><i class="fas fa-${isFlash ? 'crosshairs' : 'object-group'}"></i></button>`;
 }
 
 /**
@@ -61,16 +61,16 @@ function allianceItemHtml(a, i, total, s, inc, layout, actions = true, showOnMap
   const name = escapeHtml(a.name || '');
   const pad = layout === 'row' ? 'px-0.5' : 'px-1';
   const buttons = actions ? actionButtons(a, i, total, pad) : '';
-  const mapBtn = showOnMap ? showOnMapButton(a, pad, showOnMap) : '';
+  const mapBtn = showOnMap ? showOnMapButton(a, showOnMap) : '';
   if (layout === 'row') {
     return `
-      <div class="flex items-center gap-1 py-1.5 border-b dark:border-gray-700 text-xs">
-        <span class="w-3 h-3 rounded-full flex-shrink-0" style="background:${a.color}"></span>
+      <div class="alliance-row flex items-center gap-1.5 py-1.5 border-b dark:border-gray-700 text-xs">
+        <span class="alliance-dot w-3 h-3 rounded-full flex-shrink-0" style="background:${a.color}"></span>
         <div class="flex-1 min-w-0">
           <div class="flex items-baseline gap-1">
-            <span class="text-gray-500">${i + 1}.</span>
-            <span class="font-mono font-semibold">${tag}</span>
-            <span class="text-gray-500 truncate">${name}</span>
+            <span class="alliance-rank text-gray-500">${i + 1}.</span>
+            <span class="alliance-tag font-mono font-semibold">${tag}</span>
+            <span class="alliance-name text-gray-500 truncate">${name}</span>
           </div>
           ${statsLine(s)}
           ${incomeLine(inc, 'w-3 h-3')}

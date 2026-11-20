@@ -30,6 +30,11 @@ let dragStartSettings = null;
 let dragStartPoint = null;
 // Таймер мигающей обводки территорий союза (страница гостя)
 let flashTimer = null;
+// Мигание рисуем вручную: CSS-анимация stroke-width не перерисовывается
+// на части мобильных браузеров (iOS/Safari) и отключается системной
+// настройкой «уменьшить движение», из-за чего подсветка выглядела статичной.
+let flashBlinkTimer = null;
+let flashBlinkOn = false;
 // Исходные позиции подсвеченных территорий — для восстановления порядка
 let flashOrder = [];
 // Номер текущей анимации фокуса: новый вызов отменяет предыдущий
@@ -1075,6 +1080,15 @@ export function flashAllianceTerritories(allianceId, durationMs = 5000) {
   targets.forEach(el => el.classList.add('flash'));
 
   if (targets.length) {
+    // Класс flash-on переключаем из JS: не зависит от CSS-анимации,
+    // поэтому одинаково работает в десктопном и мобильном браузере.
+    flashBlinkOn = false;
+    const blink = () => {
+      flashBlinkOn = !flashBlinkOn;
+      targets.forEach(el => el.classList.toggle('flash-on', flashBlinkOn));
+    };
+    blink();
+    flashBlinkTimer = setInterval(blink, 350);
     flashTimer = setTimeout(clearAllianceFlash, durationMs);
   }
   return targets.length;
@@ -1083,7 +1097,9 @@ export function flashAllianceTerritories(allianceId, durationMs = 5000) {
 /** Снимает мигающую обводку досрочно и восстанавливает порядок элементов. */
 export function clearAllianceFlash() {
   if (flashTimer) { clearTimeout(flashTimer); flashTimer = null; }
-  svgRoot?.querySelectorAll('.territory.flash').forEach(el => el.classList.remove('flash'));
+  if (flashBlinkTimer) { clearInterval(flashBlinkTimer); flashBlinkTimer = null; }
+  flashBlinkOn = false;
+  svgRoot?.querySelectorAll('.territory.flash').forEach(el => el.classList.remove('flash', 'flash-on'));
   // Возвращаем элементы на исходные позиции (обход в обратном порядке,
   // чтобы nextSibling каждого был ещё актуален)
   for (let i = flashOrder.length - 1; i >= 0; i--) {
