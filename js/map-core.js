@@ -2,7 +2,8 @@ import { db } from './firebase-config.js';
 import { doc, getDoc, setDoc, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { toast } from './utils.js';
 import {
-  FALLBACK_VIEWBOX, LABELS_STATE_KEY, UNASSIGNED_ICONS_KEY,
+  FALLBACK_VIEWBOX, LABELS_STATE_KEY, UNASSIGNED_ICONS_KEY, LEGEND_COLLAPSED_KEY,
+  LEGEND_MOBILE_QUERY,
   TRADE_STROKE_WIDTH, SVG_NS, TERRITORY_TYPES, LEVEL_BY_TYPE,
   ICON_SIZE, ICON_HALF, ICON_GAP, ICON_COLORS, ICON_TEXT_COLORS,
   LEGEND_ICON_POINTS, LABEL_OVERFLOW_STROKE, LABEL_TEMPLATE_STROKE,
@@ -30,6 +31,22 @@ let dragStartPoint = null;
 
 // Перекраска состояния pan/zoom после смены режима (заполняется в addMapControls)
 let refreshPanState = null;
+// Внешнее управление режимом редактирования в полноэкранном режиме
+let applyEditModeExternal = null;
+
+/**
+ * Включает/выключает режим редактирования карты извне (переключатель в FS-панели).
+ * Нужен мобильным устройствам: там редактирование по умолчанию выключено,
+ * и без явного переключателя инструменты остаются неактивными.
+ */
+export function setMapEditMode(val) {
+  applyEditModeExternal?.(!!val);
+}
+
+/** Текущее состояние режима редактирования (для перерисовки переключателя). */
+export function isMapEditMode() {
+  return !!svgRoot?.parentElement?._getEditMode?.();
+}
 
 /** Прерывает перетаскивание подписи, не сохраняя результат. */
 function cancelLabelDrag() {
@@ -400,17 +417,54 @@ export function canSelectWithAdjacency(territoryId, selectedIds, adjacencyMode) 
 function legendRow(kind, label) {
   const c = ICON_COLORS[kind];
   return `
-    <div class="flex items-center gap-2">
+    <div class="map-trade-legend-row">
       <svg width="12" height="12" viewBox="0 0 12 12"><polygon points="${LEGEND_ICON_POINTS[kind]}" fill="${c.fill}" stroke="${c.stroke}" stroke-width="0.8"/></svg>
       <span>${label}</span>
     </div>`;
 }
 
+/**
+ * Легенда в левом нижнем углу. Сворачивается кликом по заголовку;
+ * на мобильных по умолчанию свёрнута, чтобы не закрывать карту.
+ */
 function addTradeLegend(container) {
   if (!container || container.querySelector('.map-trade-legend')) return;
+
+  const isMobile = window.matchMedia(LEGEND_MOBILE_QUERY).matches;
+  const saved = localStorage.getItem(LEGEND_COLLAPSED_KEY);
+  let collapsed = saved === null ? isMobile : saved === 'true';
+
   const el = document.createElement('div');
-  el.className = 'map-trade-legend flex flex-col gap-1 p-2 bg-white/90 dark:bg-gray-800/90 rounded border border-gray-300 dark:border-gray-600 text-xs shadow pointer-events-none';
-  el.innerHTML = legendRow('city', 'Города') + legendRow('bastion', 'Бастионы') + legendRow('trade', 'Торговые посты');
+  el.className = 'map-trade-legend';
+  el.innerHTML = `
+    <button type="button" class="map-trade-legend-toggle" aria-expanded="false">
+      <i class="fas fa-chevron-up map-trade-legend-chevron"></i>
+      <span>Обозначения</span>
+    </button>
+    <div class="map-trade-legend-body">
+      ${legendRow('city', 'Города')}
+      ${legendRow('bastion', 'Бастионы')}
+      ${legendRow('trade', 'Торговые посты')}
+    </div>`;
+
+  const toggle = el.querySelector('.map-trade-legend-toggle');
+  const apply = () => {
+    el.classList.toggle('is-collapsed', collapsed);
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    toggle.title = collapsed ? 'Развернуть обозначения' : 'Свернуть обозначения';
+  };
+
+  toggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    collapsed = !collapsed;
+    localStorage.setItem(LEGEND_COLLAPSED_KEY, String(collapsed));
+    apply();
+  });
+  // Клик по легенде не должен доходить до карты (выделение/перетаскивание)
+  el.addEventListener('click', (e) => e.stopPropagation());
+  el.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+
+  apply();
   container.appendChild(el);
 }
 
@@ -736,7 +790,7 @@ function addMapControls(container, pz, interactive, handleTerritoryClick, onFull
           let el = document.elementFromPoint(touch.clientX, touch.clientY);
           if (el && el.closest && el.closest('#labels')) el = null;
           const territory = el && el.closest ? el.closest('.territory') : null;
-          if (territory && interactive && !isFullscreen && editMode) {
+          if (territory && interactive && editMode) {
             handled = true;
             try { handleTerritoryClick(territory.id, territory); } catch (err) { console.error(err); }
           }
@@ -798,7 +852,10 @@ function addMapControls(container, pz, interactive, handleTerritoryClick, onFull
     else if (action === 'toggleFullscreenEdit') {
       if (!isFullscreen) return;
       fullscreenEditPanel = !fullscreenEditPanel;
-      editMode = fullscreenEditPanel;
+      // На десктопе панель инструментов по-прежнему сразу включает редактирование.
+      // На тач-устройствах editMode остаётся под явным переключателем в панели:
+      // случайный тап по карте не должен менять раскладку.
+      if (!isTouch) editMode = fullscreenEditPanel;
       render();
       if (onFullscreenEditToggle) onFullscreenEditToggle(fullscreenEditPanel);
     }
@@ -806,6 +863,12 @@ function addMapControls(container, pz, interactive, handleTerritoryClick, onFull
     else if (action === 'fullscreen') { if (isFullscreen) await exitFullscreen(); else await enterFullscreen(); }
   });
   container._getEditMode = () => editMode;
+  container._setEditMode = (val) => {
+    editMode = !!val;
+    render();
+  };
+  // Хук для setMapEditMode() из страниц (переключатель в FS-панели)
+  applyEditModeExternal = (val) => container._setEditMode(val);
 }
 
 export async function initMap({ containerId, interactive = false, clickHandler = null, onFullscreenEditToggle = null }) {

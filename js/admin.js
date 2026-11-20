@@ -15,6 +15,7 @@ import {
   isLabelsVisible, isUnassignedIconsVisible,
   isHiddenLabelsVisible, toggleHiddenLabelsExternal,
   setLabelEditMode as setLabelEditModeCore, setDragMode,
+  setMapEditMode, isMapEditMode,
   loadResourceNames, saveResourceNames,
 } from './map-core.js';
 import { requireAuth, logout } from './auth.js';
@@ -606,6 +607,12 @@ function initFsPanel() {
     containerId: 'map-container',
     features: { dragDrop: true, limits: false },
     isVisible: () => ({ labels: isLabelsVisible(), icons: isUnassignedIconsVisible() }),
+    isEditMode: () => isMapEditMode(),
+    onSetEditMode: (val) => {
+      setMapEditMode(val);
+      if (!val) clearSelection();
+      return true;
+    },
 
     onSetMode: (m) => {
       if (labelEditMode) {

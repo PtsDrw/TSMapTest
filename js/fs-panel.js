@@ -54,10 +54,21 @@ function panelHtml({ limits = false, dragDrop = false } = {}) {
       </div>
 
       <div class="p-3 space-y-4 text-sm">
+        <label id="fs-edit-mode-toggle-label" class="flex items-center justify-between gap-2 p-2 rounded border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30 text-xs font-bold cursor-pointer text-blue-700 dark:text-blue-300">
+          <span><i class="fas fa-pen mr-1"></i><span id="fs-edit-mode-toggle-text">Включить редактирование</span></span>
+          <input type="checkbox" id="fs-chk-map-edit" class="w-4 h-4 flex-shrink-0">
+        </label>
+
+        <div id="fs-tools-disabled-note" class="text-[10px] text-gray-500 dark:text-gray-400 leading-tight -mt-2">
+          Пока редактирование выключено, инструменты неактивны: тап по территории показывает информацию.
+        </div>
+
         <div class="grid grid-cols-2 gap-2 pb-2 border-b dark:border-gray-700">
           <button id="fs-btn-labels" class="${FS_TOOL_BTN.base} ${FS_TOOL_BTN.off}">${ICONS.eye}Подписи</button>
           <button id="fs-btn-icons" class="${FS_TOOL_BTN.base} ${FS_TOOL_BTN.off}">${ICONS.layers}Иконки</button>
         </div>
+
+        <div id="fs-tools-body" class="space-y-4 opacity-50 pointer-events-none transition-opacity">
 
         <div>
           <div class="font-semibold mb-1">Режим:</div>
@@ -125,6 +136,7 @@ ${clearFilteredRow}
           </button>
         </div>
 ${limitsBlock}
+        </div>
       </div>
     </div>`;
 }
@@ -167,6 +179,8 @@ export function createFsPanel(opts) {
     onResetLabels,
     onSaveLabels,
     onSyncSliders,
+    isEditMode = () => false,
+    onSetEditMode,
   } = opts;
 
   const container = typeof containerId === 'string' ? document.getElementById(containerId) : containerId;
@@ -184,6 +198,29 @@ export function createFsPanel(opts) {
     const toolsBtn = document.querySelector('.map-controls [data-action="toggleFullscreenEdit"]');
     if (toolsBtn) toolsBtn.click();
     else onClose?.();
+  });
+
+  // ─── Режим редактирования (главный переключатель, важен для мобильных) ───
+  const fsChkMapEdit = byId('fs-chk-map-edit');
+  const fsEditToggleText = byId('fs-edit-mode-toggle-text');
+  const fsToolsBody = byId('fs-tools-body');
+  const fsToolsNote = byId('fs-tools-disabled-note');
+
+  const refreshEditMode = () => {
+    const active = !!isEditMode();
+    if (fsChkMapEdit) fsChkMapEdit.checked = active;
+    if (fsEditToggleText) fsEditToggleText.textContent = active ? 'Редактирование включено' : 'Включить редактирование';
+    setControlsEnabled(fsToolsBody, active);
+    if (fsToolsNote) fsToolsNote.style.display = active ? 'none' : '';
+  };
+  panel.refreshEditMode = refreshEditMode;
+
+  listen('fs-chk-map-edit', 'change', (e) => {
+    const wanted = e.target.checked;
+    const applied = onSetEditMode?.(wanted);
+    // Коллбэк вернул false — режим переключить нельзя (например, идёт сохранение)
+    if (applied === false) e.target.checked = !wanted;
+    refreshEditMode();
   });
 
   // ─── Режим редактирования ───
@@ -297,6 +334,7 @@ export function createFsPanel(opts) {
 
   // ─── Синхронизация с текущим состоянием ───
   setControlsEnabled(byId('fs-label-controls'), !!fsChkEditLabels?.checked);
+  refreshEditMode();
   onSyncSliders?.();
 
   return panel;
@@ -309,6 +347,7 @@ export function setFsPanelVisible(active, { onShown } = {}) {
   panel.classList.toggle('hidden', !active);
   if (active) {
     panel.refreshVisualToggles?.();
+    panel.refreshEditMode?.();
     onShown?.();
   }
 }

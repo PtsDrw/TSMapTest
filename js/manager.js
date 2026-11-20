@@ -17,6 +17,7 @@ import {
   isLabelsVisible, isUnassignedIconsVisible,
   isHiddenLabelsVisible, toggleHiddenLabelsExternal,
   setDragMode, setLabelEditMode as setLabelEditModeCore,
+  setMapEditMode, isMapEditMode,
 } from './map-core.js';
 import { requireAuth, logout } from './auth.js';
 import { pickUniqueColor } from './palette.js';
@@ -561,6 +562,13 @@ function initLabelControls() {
     updateSlidersFromSelection();
     toast('Сброшено', 'success');
   });
+
+  // Сохранение подписей без ожидания «Сохранить раскладку»: сразу пишет
+  // label_settings в Firestore, чтобы правки применились у всех.
+  on('btn-save-labels', 'click', async () => {
+    await saveLabelSettings(getLabelSettings());
+    toast('Настройки подписей сохранены', 'success');
+  });
 }
 
 /** Меняет настройки подписей выбранных территорий (общий mutator). */
@@ -767,6 +775,12 @@ function initFsPanel() {
     containerId: 'map-container',
     features: { limits: true, dragDrop: true },
     isVisible: () => ({ labels: isLabelsVisible(), icons: isUnassignedIconsVisible() }),
+    isEditMode: () => isMapEditMode(),
+    onSetEditMode: (val) => {
+      setMapEditMode(val);
+      if (!val) clearSelection();
+      return true;
+    },
 
     onSetMode: (m) => {
       if (labelEditMode) {

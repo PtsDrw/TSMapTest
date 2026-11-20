@@ -8,12 +8,17 @@ export const STORAGE_KEYS = {
   labelsVisible: 'ts_labels_visible',
   unassignedIcons: 'ts_unassigned_icons',
   session: 'ts_session',
+  legendCollapsed: 'ts_legend_collapsed',
   working: (keyId) => `ts_working_${keyId}`,
 };
 
 // Прямые экспорты для обратной совместимости с map-core.js
 export const LABELS_STATE_KEY = STORAGE_KEYS.labelsVisible;
 export const UNASSIGNED_ICONS_KEY = STORAGE_KEYS.unassignedIcons;
+export const LEGEND_COLLAPSED_KEY = STORAGE_KEYS.legendCollapsed;
+
+// Ширина экрана, на которой легенда по умолчанию свёрнута (мобильные)
+export const LEGEND_MOBILE_QUERY = '(max-width: 767px)';
 
 // Режимы редактирования
 export const MODES = {

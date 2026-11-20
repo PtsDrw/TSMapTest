@@ -99,27 +99,68 @@
   border-color: #2563eb;
 }
 
-/* ═══ Подсказка «Торговые посты» (левый нижний угол) ═══ */
+/* ═══ Легенда «Обозначения» (левый нижний угол) ═══ */
 .map-trade-legend {
   position: absolute;
   bottom: 8px;
   left: 8px;
   z-index: 15;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px 4px 6px;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   font-size: 11px;
   color: #334155;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-  pointer-events: none;
   user-select: none;
   font-weight: 500;
-  line-height: 1;
+  line-height: 1.2;
+  overflow: hidden;
 }
+.map-trade-legend-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+.map-trade-legend-toggle:hover { background: rgba(148, 163, 184, 0.18); }
+.map-trade-legend-chevron {
+  font-size: 9px;
+  opacity: 0.7;
+  transition: transform 0.18s ease;
+  transform: rotate(180deg); /* развёрнуто → «вниз» */
+}
+.map-trade-legend.is-collapsed .map-trade-legend-chevron {
+  transform: rotate(0deg);   /* свёрнуто → «вверх» */
+}
+.map-trade-legend-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 0 8px 6px 8px;
+}
+.map-trade-legend.is-collapsed .map-trade-legend-body { display: none; }
+.map-trade-legend-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  text-align: left;
+  white-space: nowrap;
+}
+.map-trade-legend-row svg { flex-shrink: 0; }
 .map-trade-legend-swatch {
   width: 12px;
   height: 12px;
@@ -134,6 +175,7 @@
   border-color: #475569;
   color: #e5e7eb;
 }
+.dark .map-trade-legend-toggle:hover { background: rgba(148, 163, 184, 0.22); }
 .dark .map-trade-legend-swatch {
   background: #334155;
   border-color: #fbbf24;
