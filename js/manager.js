@@ -18,7 +18,7 @@ import {
   isHiddenLabelsVisible, toggleHiddenLabelsExternal,
   setDragMode, setLabelEditMode as setLabelEditModeCore,
   setMapEditMode, isMapEditMode,
-  selectAllianceTerritories, scrollToMap,
+  selectAllianceTerritories, scrollToMap, focusAllianceTerritories,
 } from './map-core.js';
 import { requireAuth, logout } from './auth.js';
 import { pickUniqueColor } from './palette.js';
@@ -699,6 +699,7 @@ function renderAlliancesList() {
       const count = selectAllianceTerritories(id, { assignments: workingAssignments });
       updateSlidersFromSelection();
       scrollToMap('map-container');
+      if (count) focusAllianceTerritories(id, { assignments: workingAssignments });
       toast(count ? `Выделено территорий: ${count}` : 'У этого союза нет территорий', count ? 'success' : 'error');
     },
   });

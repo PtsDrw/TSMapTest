@@ -32,6 +32,8 @@ let dragStartPoint = null;
 let flashTimer = null;
 // Исходные позиции подсвеченных территорий — для восстановления порядка
 let flashOrder = [];
+// Номер текущей анимации фокуса: новый вызов отменяет предыдущий
+let focusGeneration = 0;
 
 // Перекраска состояния pan/zoom после смены режима (заполняется в addMapControls)
 let refreshPanState = null;
@@ -1098,6 +1100,119 @@ export function scrollToMap(containerId = 'map-container') {
   const el = document.getElementById(containerId);
   if (!el) return;
   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/**
+ * Плавно вписывает перечисленные территории в кадр карты: подбирает масштаб
+ * так, чтобы они заняли видимую область с отступами, и центрирует их.
+ *
+ * Зум идёт через zoomAtPointBy вокруг центра bbox (точка в SVG-координатах),
+ * а положение каждый кадр доводится panBy по фактическому bbox. Такая схема
+ * самокорректирующаяся: работает и при одновременной прокрутке страницы,
+ * и при изменении размера контейнера.
+ *
+ * @param {string[]} ids
+ * @param {{padding?:number, maxZoom?:number, duration?:number}} opts
+ * @returns {boolean} удалось ли сфокусировать
+ */
+export function focusTerritories(ids, { padding = 0.12, maxZoom = 6, duration = 450 } = {}) {
+  if (!panZoom || !svgRoot) return false;
+  const container = svgRoot.parentElement;
+  if (!container) return false;
+
+  const els = (ids || [])
+    .map(id => svgRoot.getElementById(id))
+    .filter(el => el && el.classList.contains('territory'));
+  if (!els.length) return false;
+
+  // Новый вызов отменяет предыдущую анимацию: иначе два цикла кадров
+  // начнут перетягивать карту друг у друга.
+  const generation = ++focusGeneration;
+
+  const cRect = container.getBoundingClientRect();
+  if (cRect.width < 10 || cRect.height < 10) return false;
+
+  // bbox всех территорий в экранных пикселях
+  const measure = () => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    els.forEach(el => {
+      const r = el.getBoundingClientRect();
+      if (!r.width && !r.height) return;
+      minX = Math.min(minX, r.left); minY = Math.min(minY, r.top);
+      maxX = Math.max(maxX, r.right); maxY = Math.max(maxY, r.bottom);
+    });
+    if (!isFinite(minX)) return null;
+    return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
+  };
+
+  const start = measure();
+  if (!start || !start.w || !start.h) return false;
+
+  const availW = cRect.width * (1 - padding * 2);
+  const availH = cRect.height * (1 - padding * 2);
+  const fit = Math.min(availW / start.w, availH / start.h);
+  const startZoom = panZoom.getZoom() || 1;
+  const targetZoom = Math.min(maxZoom, Math.max(0.4, startZoom * fit));
+
+  // Точка вращения — центр bbox в координатах SVG (их ждёт zoomAtPointBy)
+  const screenToSvg = (sx, sy) => {
+    const m = svgRoot.getScreenCTM();
+    if (!m) return null;
+    const pt = svgRoot.createSVGPoint();
+    pt.x = sx; pt.y = sy;
+    return pt.matrixTransform(m.inverse());
+  };
+  const pivot = screenToSvg((start.minX + start.maxX) / 2, (start.minY + start.maxY) / 2);
+  if (!pivot) return false;
+
+  const t0 = performance.now();
+
+  // panBy() принимает смещение в координатах viewBox, а bbox меряется в
+  // экранных пикселях — поэтому каждый кадр переводим центры через CTM.
+  const panToward = (b, cr, k) => {
+    const target = screenToSvg(cr.left + cr.width / 2, cr.top + cr.height / 2);
+    const current = screenToSvg((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2);
+    if (!target || !current) return;
+    const dx = (target.x - current.x) * k;
+    const dy = (target.y - current.y) * k;
+    if (Math.abs(dx) > 1e-3 || Math.abs(dy) > 1e-3) panZoom.panBy({ x: dx, y: dy });
+  };
+
+  const step = (now) => {
+    if (generation !== focusGeneration) return;
+    const p = Math.min(1, (now - t0) / duration);
+    const eased = 1 - Math.pow(1 - p, 3);
+
+    const want = startZoom + (targetZoom - startZoom) * eased;
+    const cur = panZoom.getZoom();
+    if (cur && Math.abs(want / cur - 1) > 1e-4) panZoom.zoomAtPointBy(want / cur, pivot);
+
+    // Контейнер пересчитываем каждый кадр: страница может одновременно
+    // плавно прокручиваться к карте, и центр кадра смещается.
+    const cr = container.getBoundingClientRect();
+    const b = measure();
+    if (b && cr.width > 10 && cr.height > 10) panToward(b, cr, 0.45);
+
+    if (p < 1) { requestAnimationFrame(step); return; }
+
+    // Финальная доводка: убираем остаток смещения без анимации
+    const cr2 = container.getBoundingClientRect();
+    const b2 = measure();
+    if (b2 && cr2.width > 10 && cr2.height > 10) panToward(b2, cr2, 1);
+  };
+  requestAnimationFrame(step);
+  return true;
+}
+
+/**
+ * Вписывает в кадр все территории союза.
+ * @param {string} allianceId
+ * @param {{assignments?:Object}} opts assignments — источник истины в кабинете
+ */
+export function focusAllianceTerritories(allianceId, { assignments = null, ...opts } = {}) {
+  const map = assignments || territoryAssignments;
+  const ids = Object.keys(map).filter(id => map[id] === allianceId);
+  return focusTerritories(ids, opts);
 }
 
 /** Выделяет все территории союза (кабинет управляющего). */
